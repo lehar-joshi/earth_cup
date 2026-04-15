@@ -1,6 +1,6 @@
 # import python built in libraries
 from sys import path
-path.append('C:\\Users\\amer8\\OneDrive\\Dokument\\R1\\Code\\python_tools')
+path.append('C:\\Users\\amer8\\OneDrive\\Dokument\\R1\\Code\\python_tools') ###CHANGE THIS TO YOUR OWN PATH
 
 # 3rd party imports
 import numpy as np
