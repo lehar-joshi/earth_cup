@@ -39,8 +39,8 @@ class OrbitPropagator:
         if coes:
             self.r0, self.v0=t.coes2rv(state0, deg=deg, mu=cb['mu'])
         else:
-            self.r0=state0[:3]
-            self.v0=state0[3:]
+            self.r0=np.array(state0[:3])
+            self.v0=np.array(state0[3:])
 
 
         self.mass0=mass0
@@ -175,7 +175,6 @@ class OrbitPropagator:
         return True
     
     def propagate_orbit(self):
-    
         # propagate orbit
         while self.solver.successful() and self.step < self.n_steps and self.check_stop_conditions():
             self.solver.integrate(self.solver.t + self.dt)
@@ -223,7 +222,7 @@ class OrbitPropagator:
             # calculate motion of s/c with respect to a rotating atmosphere
             v_rel=v-np.cross(self.cb['atm_rot_vector'],r)
 
-            drag=-v_rel*0.5*rho*t.norm(v_rel)*self.perts['Cd']*self.perts['A']/self.mass
+            drag=-v_rel*0.5*rho*t.norm(v_rel)*self.perts['Cd']*self.perts['A']/mass
 
             a+=drag
 
@@ -261,11 +260,11 @@ class OrbitPropagator:
     def calculate_coes(self,degrees=True, parallel=False):
         print('Calculating COEs...')
 
-        self.coes=np.zeros((self.n_steps, 6))
+        self.coes=np.zeros((self.step, 6))
         self.coes_rel=np.zeros((self.step, 6))
 
         # fill array
-        for n in range(self.n_steps):
+        for n in range(self.step):
             self.coes[n,:]=t.rv2coes(self.rs[n,:],self.vs[n,:],mu=self.cb['mu'],degrees=degrees)
         
         self.coes_rel=self.coes-self.coes[0,:]
