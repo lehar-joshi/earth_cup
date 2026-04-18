@@ -252,8 +252,18 @@ class OrbitPropagator:
             # vector pointing from sun to spacecraft
             r_sun2sc=self.cb['states'][self.step,:3]+r
 
-            # srp vector from given ephemeris data
-            a+=(1+self.perts['CR'])*pd.sun['G1']*self.perts['A_srp']/mass/t.norm(r_sun2sc)**3*r_sun2sc
+            if self.perts['srp']==1:
+                # srp vector from given ephemeris data
+                a+=(1+self.perts['CR'])*pd.sun['G1']*self.perts['A_srp']/mass/t.norm(r_sun2sc)**3*r_sun2sc
+
+            if self.perts['srp']==2:
+                nu=1
+                S=1367 #W/m^2
+                c=299792458 #m/s
+                CR=1.7
+                As=4.3 #m^2
+                a+=nu*S/c*CR*As/mass*1e-3*(t.normed(r_sun2sc)) #km/s^2
+                #print(t.norm(nu*S/c*CR*As/mass*1e-3*(t.normed(r_sun2sc))))
 
         return [vx,vy,vz,a[0],a[1],a[2],dmdt]
     
