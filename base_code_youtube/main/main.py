@@ -59,11 +59,3 @@ if __name__ == '__main__':
     op0.plot_alts(show_plot=True,hours=True)
     op0.calculate_apoapse_periapse()
     op0.plot_apoapse_periapse(show_plot=True, hours=True)
-
-
-###THINGS I NEED:
-#Area of sail (< 4 m^2)
-#Orbital initial conditions (Will be given by organizers?)
-#Perturbations (Add drag and SPR. Maybe add J2 and N-body) 
-#Perturbation parameters (Drag coeff. unclear. Assume 2.2? Need attitude dynamics for drag area and solar pressure area. CR assumed to be 1.0 for now.)
-#Mass of sail (150 g)
