@@ -18,6 +18,28 @@ def norm(v):
 def normed(v):
     return np.array(v)/norm(v)
 
+def oproj(u, n):
+    n_norm = norm(n)
+    if n_norm == 0:
+        return u  # Avoid division by zero if n is the zero vector
+    proj_of_u_on_n = (np.dot(u, n)/n_norm**2)*n
+    return u - proj_of_u_on_n
+
+def x_rotation(vector,theta):
+    """Rotates 3-D vector around x-axis"""
+    R = np.array([[1,0,0],[0,np.cos(theta),-np.sin(theta)],[0, np.sin(theta), np.cos(theta)]])
+    return np.dot(R,vector)
+
+def y_rotation(vector,theta):
+    """Rotates 3-D vector around y-axis"""
+    R = np.array([[np.cos(theta),0,np.sin(theta)],[0,1,0],[-np.sin(theta), 0, np.cos(theta)]])
+    return np.dot(R,vector)
+
+def z_rotation(vector,theta):
+    """Rotates 3-D vector around z-axis"""
+    R = np.array([[np.cos(theta), -np.sin(theta),0],[np.sin(theta), np.cos(theta),0],[0,0,1]])
+    return np.dot(R,vector)
+
 def plot_n_orbits(rs, labels, cb=pd.earth, show_plot=False, save_plot=False, title='Many orbits', AU=False, ER=False, figsize=(16,8)):
         
         fig=plt.figure(figsize=figsize)

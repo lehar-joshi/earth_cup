@@ -35,7 +35,7 @@ def null_perts():
     }
 
 class OrbitPropagator:
-    def __init__(self, state0, tspan, dt, coes=False, deg=True, mass0=0, cb=pd.earth, perts=null_perts(),sc={}, date0='2019-12-3', propagator='lsoda', frame='J2000'):
+    def __init__(self, state0, n, tspan, dt, r_wing, l, coes=False, deg=True, mass0=0, cb=pd.earth, perts=null_perts(),sc={}, date0='2019-12-3', propagator='lsoda', frame='J2000', rot=False):
         if coes:
             self.r0, self.v0=t.coes2rv(state0, deg=deg, mu=cb['mu'])
         else:
@@ -50,8 +50,13 @@ class OrbitPropagator:
         self.tspan = tspan
         self.dt = dt
         self.cb = cb
+        self.rot = rot
+        self.n = n #Orientation vector
         # total number of steps
         self.n_steps = int(np.ceil(self.tspan / self.dt))+1
+
+        self.r_wing=r_wing
+        self.l=l
 
         # initialize arrays
         self.ys = np.zeros((self.n_steps+1, 7))
@@ -59,7 +64,8 @@ class OrbitPropagator:
         self.alts = np.zeros((self.n_steps+1))
 
         # initial conditions
-        self.y0 = self.r0.tolist()+self.v0.tolist()+[self.mass0]
+        #self.L0=np.zeros(3)
+        self.y0 = self.r0.tolist()+self.v0.tolist()+[self.mass0]#+self.L0.tolist()
         self.alts[0]=t.norm(self.r0)-self.cb['radius']
         self.ts[0] = 0
         self.ys[0] = np.array(self.y0)
@@ -137,8 +143,13 @@ class OrbitPropagator:
             if self.perts['thrust']:
                 self.thrust_func=self.default_thrust_func
 
+        if self.rot:
+            #Define quaternion
+            theta=0 #rad
+            self.q=np.array([np.cos(theta/2), np.sin(theta/2)*(1/np.sqrt(3)), np.sin(theta/2)*(1/np.sqrt(3)), np.sin(theta/2)*(1/np.sqrt(3))])
+        
         self.propagate_orbit()
-
+    
     # check if s/c has deorbited
     def check_deorbit(self):
         if self.alts[self.step]<self.cb['deorbit_altitude']:
@@ -178,6 +189,7 @@ class OrbitPropagator:
         # propagate orbit
         while self.solver.successful() and self.step < self.n_steps and self.check_stop_conditions():
             self.solver.integrate(self.solver.t + self.dt)
+            print(self.solver.t, " seconds have passed")
             self.step += 1
             self.ts[self.step] = self.solver.t
             self.ys[self.step] = self.solver.y
@@ -188,12 +200,27 @@ class OrbitPropagator:
         self.vs=self.ys[:self.step,3:6]
         self.masses=self.ys[:self.step,-1]
         self.alts=self.alts[:self.step]
+        if self.rot:
+            self.qs=self.qs[:self.step]
 
     def diffy_q(self,t_,y):
+
+        """time=[0,0]
+        time[0]=time[1]
+        time[1]=t_
+        Δt=time[1]-time[0]"""
+
         # unpack state
-        rx,ry,rz,vx,vy,vz,mass = y
+        rx,ry,rz,vx,vy,vz,mass=y#,Lx,Ly,Lz = y
         r=np.array([rx,ry,rz])
         v=np.array([vx,vy,vz])
+        """I = mass*self.l**2
+        ωx,ωy,ωz = Lx/I,Ly/I,Lz/I
+        ω=np.array([ωx,ωy,ωz])
+        Ω=np.array([[ 0, -ωx, -ωy, -ωz], 
+                    [ωx,   0,  ωz, -ωy], 
+                    [ωy, -ωz,   0,  ωx], 
+                    [ωz,  ωy, -ωx,   0]])"""
         dmdt=0
 
         # norm of the radius vector
@@ -201,6 +228,22 @@ class OrbitPropagator:
 
         # two body acceleration
         a=-r*self.cb['mu']/norm_r**3
+
+        #Calculate rotation angle
+        #rot_propagator=np.cos(t.norm(ω)*(Δt)/2)*np.eye(4)+1/t.norm(ω)*np.sin(t.norm(ω)*(Δt)/2)*Ω if t.norm(ω) != 0 else np.eye(4)
+        #print(np.cos(t.norm(ω)*(Δt)/2)*np.eye(4))
+        #print(1/t.norm(ω)*np.sin(t.norm(ω)*(Δt)/2)*Ω)
+        #print(Lx, Ly, Lz)
+        #self.q= t.normed(np.dot(rot_propagator, self.q))
+        #θ = 2*np.acos(self.q[0])
+        #if t_ > 0:
+            #exit()
+
+        #Apply rotation angle to the area and wing vector
+        #R = np.array([[np.cos(θ), -np.sin(θ),0],[np.sin(θ), np.cos(θ),0],[0,0,1]])
+        #P = np.array([np.cross(ω, self.r_wing), self.r_wing, ω])
+        #self.n = t.normed(np.transpose(P) @ R @ P @ self.n)
+        #self.r_wing = t.normed(np.transpose(P) @ R @ P @ self.r_wing) * self.l
 
         # J2 perturbation
         if self.perts['J2']:
@@ -222,7 +265,20 @@ class OrbitPropagator:
             # calculate motion of s/c with respect to a rotating atmosphere
             v_rel=v-np.cross(self.cb['atm_rot_vector'],r)
 
-            drag=-v_rel*0.5*rho*t.norm(v_rel)*self.perts['Cd']*self.perts['A']/mass
+            # drag direction
+            d=t.normed(-v_rel)
+
+            #Align the surface of the spacecraft perpendicular to the drag direction with minimal rotation
+            self.n = t.normed(t.oproj(self.n, d))
+            
+            #Align the wing of the spacecraft perpendicular to the surface of the spacecraft with minimal rotation
+            #self.r_wing = t.normed(t.oproj(self.r_wing, self.n))*self.l
+
+            #Full formula of the drag acceleration
+            drag=-v_rel*0.5*rho*t.norm(v_rel)*self.perts['Cd']*self.perts['A']*np.abs(np.dot(self.n, d))/mass
+
+            #Simplifying assumption with the drag being minimized because of the tail
+            drag=0
 
             a+=drag
 
@@ -252,20 +308,28 @@ class OrbitPropagator:
             # vector pointing from sun to spacecraft
             r_sun2sc=self.cb['states'][self.step,:3]+r
 
-            if self.perts['srp']==1:
-                # srp vector from given ephemeris data
-                a+=(1+self.perts['CR'])*pd.sun['G1']*self.perts['A_srp']/mass/t.norm(r_sun2sc)**3*r_sun2sc
+            P=4.53 * 1e-3 # kg/km/s^2
+            A=self.perts['A_srp']
+            s_hat=-t.normed(r_sun2sc)
+            n_hat=self.n
+            rho_s=self.perts['CR']
+            cos_α=np.dot(n_hat, s_hat)
 
-            if self.perts['srp']==2:
-                nu=1
-                S=1367 #W/m^2
-                c=299792458 #m/s
-                CR=1.7
-                As=4.3 #m^2
-                a+=nu*S/c*CR*As/mass*1e-3*(t.normed(r_sun2sc)) #km/s^2
-                #print(t.norm(nu*S/c*CR*As/mass*1e-3*(t.normed(r_sun2sc))))
+            #Position check - if the spacecraft is in the shadow of the central body, set SRP acceleration to 0
+            if np.dot(self.cb['states'][self.step,:3], r) > 0:
+                a_srp=0
+            else:
+                a_srp=P*A*cos_α*((1-rho_s)*s_hat+2*rho_s*cos_α*n_hat)/mass
+            a+=a_srp
 
-        return [vx,vy,vz,a[0],a[1],a[2],dmdt]
+        """if self.rot:
+            #Calculate torque
+            F_SRP = a_srp*mass
+            τ = np.cross(self.r_wing, F_SRP)"""
+
+
+        
+        return [vx,vy,vz,a[0],a[1],a[2],dmdt] #, τ[0], τ[1], τ[2]]
     
     def calculate_coes(self,degrees=True, parallel=False):
         print('Calculating COEs...')
@@ -414,6 +478,31 @@ class OrbitPropagator:
         if save_plot:
             plt.savefig(title+'.png', dpi)
 
+    # plot altitude over time
+    def plot_qs(self,show_plot=False,save_plot=False,hours=False,days=False,title='Rotation Angle vs. Time',figsize=(16,8),dpi=500):
+        # x axis
+        if hours:
+            ts=self.ts/3600.0
+            x_unit='Time elapsed (hours)'
+        elif days:
+            ts=self.ts/3600.0/24.0
+            x_unit='Time elapsed (days)'
+        else:
+            ts=self.ts
+            x_unit='Time elapsed (seconds)'
+        plt.figure(figsize=figsize)
+        plt.plot(ts,2*np.acos(self.qs[:,0]),'w')
+        plt.grid(True)
+        plt.xlabel('Time (%s)' % x_unit)
+        plt.ylabel('Angle (rad)')
+        plt.title(title)
+
+        if show_plot:
+            plt.show()
+
+        if save_plot:
+            plt.savefig(title+'.png', dpi)
+
     def plot_3d(self, show_plot=False, save_plot=False, title='Test Title'):
         fig=plt.figure(figsize=(16,8))
         ax=fig.add_subplot(111,projection='3d')
@@ -433,6 +522,12 @@ class OrbitPropagator:
         x,y,z=[[0,0,0], [0,0,0], [0,0,0]]
         u,v,w=[[l,0,0], [0,l,0], [0,0,l]]
         ax.quiver(x, y, z, u, v, w, color='k')
+
+        # plot the direction of the sun
+        #ax.quiver(0,0,0,-0.24235989*l,0.89015157*l,0.3858651*l, color='g')
+
+        # plot the area vector of satellite
+        #ax.quiver(self.rs[0,0], self.rs[0,1], self.rs[0,2], l*self.n[0], l*self.n[1], l*self.n[2], color='r')
 
         max_val=np.max(np.abs(self.rs))
 
